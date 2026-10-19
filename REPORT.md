@@ -193,6 +193,27 @@ Both the threshold and the cut-off are sliders, because the right values depend 
 
 The Thai questions are our own translation. A native speaker should check them before we trust the results.
 
+**The questions, English vs Thai** (defined in `jev.py` as `QUESTIONS` and `QUESTIONS_TH`):
+
+| Question | Part | English | Thai |
+|---|---|---|---|
+| flag (noul) | `instructions` | Should a moderator review this YouTube comment? | ผู้ดูแลควรตรวจสอบความคิดเห็น YouTube นี้หรือไม่? |
+|  | `true` | The comment may break community rules: spam, scams, harassment, hate, or harmful misinformation. | ความคิดเห็นอาจละเมิดกฎของชุมชน: สแปม การหลอกลวง การคุกคาม ความเกลียดชัง หรือข้อมูลเท็จที่เป็นอันตราย |
+|  | `false` | A normal comment that is safe to keep. | ความคิดเห็นปกติที่เก็บไว้ได้อย่างปลอดภัย |
+| category (choice) | `instructions` | What is the main category of this YouTube comment? | ความคิดเห็น YouTube นี้อยู่ในหมวดหมู่หลักใด? |
+|  | `clean` | Normal comment: opinion, praise, question, or discussion about the video | ความคิดเห็นปกติ: ความเห็น คำชม คำถาม หรือการพูดคุยเกี่ยวกับวิดีโอ |
+|  | `spam` | Scams, bots, repeated text, fake giveaways, suspicious links | การหลอกลวง บอท ข้อความซ้ำ ๆ แจกของปลอม ลิงก์น่าสงสัย |
+|  | `self_promotion` | Advertising own channel, product, or social media | โฆษณาช่อง สินค้า หรือโซเชียลมีเดียของตัวเอง |
+|  | `harassment` | Insults or attacks against a person, the creator, or other commenters | ดูถูกหรือโจมตีบุคคล ผู้สร้างวิดีโอ หรือผู้แสดงความคิดเห็นคนอื่น |
+|  | `hate_speech` | Attacks on a group based on race, religion, gender, nationality, etc. | โจมตีกลุ่มคนจากเชื้อชาติ ศาสนา เพศ สัญชาติ ฯลฯ |
+|  | `misinformation` | False or misleading claims presented as fact | อ้างข้อมูลเท็จหรือชวนให้เข้าใจผิดราวกับเป็นข้อเท็จจริง |
+|  | `off_topic` | Unrelated to the video | ไม่เกี่ยวข้องกับวิดีโอ |
+| severity (score) | `instructions` | How harmful is this YouTube comment? | ความคิดเห็น YouTube นี้เป็นอันตรายแค่ไหน? |
+|  | `None` | None: harmless | ไม่มี: ไม่เป็นอันตราย |
+|  | `Mild` | Mild: rude or annoying | เล็กน้อย: หยาบคายหรือน่ารำคาญ |
+|  | `Moderate` | Moderate: insulting, misleading, or clearly unwanted | ปานกลาง: ดูถูก ชวนให้เข้าใจผิด หรือไม่พึงประสงค์อย่างชัดเจน |
+|  | `Severe` | Severe: hateful, threatening, or dangerous | รุนแรง: แสดงความเกลียดชัง ข่มขู่ หรือเป็นอันตราย |
+
 ### Results
 
 _To fill in after running the app on a Thai video._

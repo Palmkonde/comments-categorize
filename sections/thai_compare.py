@@ -14,6 +14,8 @@ def render(records, key, s):
         "Asks the same saved comments again with the three questions translated to Thai, using the same JEV version, "
         "then compares. Use a Thai video. Matching answers show consistency, not which language is right."
     )
+    st.markdown("**The questions sent to JEV** (choice keys stay in English so answers can be compared)")
+    st.dataframe(question_table(), hide_index=True)
     if not records:
         st.info("Fetch a Thai video first.")
         return
@@ -32,6 +34,20 @@ def render(records, key, s):
     th = jev.load_thai(rec["video_id"])
     if th:
         compare(rec, th, s)
+
+
+def question_table():
+    """English and Thai wording of every question, side by side."""
+    rows = []
+    for name, en in jev.QUESTIONS.items():
+        th = jev.QUESTIONS_TH[name]
+        rows.append({"Question": f"{name} ({en['type']})", "Part": "instructions", "English": en["instructions"], "Thai": th["instructions"]})
+        crit = en["criteria"]
+        labels = crit.keys() if isinstance(crit, dict) else range(len(crit))
+        for k in labels:
+            part = jev.SEVERITY[k] if isinstance(k, int) else k
+            rows.append({"Question": "", "Part": part, "English": crit[k], "Thai": th["criteria"][k]})
+    return pd.DataFrame(rows)
 
 
 def summary(d, s):
