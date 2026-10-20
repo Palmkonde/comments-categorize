@@ -1,0 +1,44 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "flag": {
+      "type": "noul",
+      "noul": 0.97
+    },
+    "category": {
+      "type": "choice",
+      "choice": "spam",
+      "confidence": 1.0,
+      "probabilities": {
+        "clean": 0.0,
+        "spam": 1.0,
+        "self_promotion": 0.0,
+        "harassment": 0.0,
+        "hate_speech": 0.0,
+        "misinformation": 0.0,
+        "off_topic": 0.0
+      }
+    },
+    "severity": {
+      "type": "score",
+      "score": 1.99,
+      "confidence": 0.98,
+      "legend": {
+        "0": "None: harmless",
+        "1": "Mild: rude or annoying",
+        "2": "Moderate: insulting, misleading, or clearly unwanted",
+        "3": "Severe: hateful, threatening, or dangerous"
+      },
+      "probabilities": {
+        "0": 0.0,
+        "1": 0.01,
+        "2": 0.98,
+        "3": 0.01
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 623,
+    "output_tokens": 108
+  }
+}

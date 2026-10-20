@@ -1,4 +1,7 @@
 """Section 1: flow diagrams, SDK call, and raw request/response."""
+import json
+from pathlib import Path
+
 import streamlit as st
 
 import jev
@@ -18,6 +21,8 @@ QUESTION_TYPES = """flowchart LR
     N["noul: yes/no<br/>Should a moderator review it?"] --> NA["noul: 0.91<br/>probability of yes"]
     C["choice: pick one of 7<br/>What is the main category?"] --> CA["choice: spam<br/>+ probabilities, confidence"]
     K["score: ordered levels<br/>How harmful is it?"] --> KA["score: 1.2 = Mild<br/>+ probabilities, confidence"]"""
+
+EXAMPLE_RESPONSE = Path(__file__).parent / "example_response.json"  # real response to the example request below
 
 SDK_CALL = """from typesafe_sdk import TypeSafeClient
 
@@ -46,4 +51,5 @@ def render(records):
     else:
         req_col.markdown("**Request** (example)")
         req_col.json(jev.build_request("Help! Free iPhone giveaway, click my channel!!", "iPhone 18 review"), expanded=False)
-        resp_col.info("No real response yet. Fetch a video to see JEV's actual output here.")
+        resp_col.markdown("**Response** (real JEV output for this example, saved Oct 2026)")
+        resp_col.json(json.loads(EXAMPLE_RESPONSE.read_text(encoding="utf-8")), expanded=False)
