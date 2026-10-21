@@ -13,7 +13,7 @@ load_dotenv()
 
 MODEL = "jev-latest"
 RETRY = RetryPolicy(max_retries=4)  # SDK retries 408, 429, 5xx (incl. 529) with backoff + Retry-After
-PRICE_PER_M = 0.042  # USD per 1M input tokens, output free. Unofficial: secondary sources, Oct 2026.
+PRICE_PER_M = 0.042  # USD per 1M input tokens, output free. From TypeSafe's launch post, Oct 2026.
 DATA_DIR = Path(__file__).parent / "data"
 THAI_DIR = DATA_DIR / "thai_questions"  # subfolder, so load_all() doesn't pick it up
 
@@ -188,7 +188,7 @@ def severity_label(answer):
     return str(desc)
 
 
-ANSWER_FIELDS = ["flag", "flag_confidence", "category", "category_confidence", "severity", "severity_score", "severity_confidence", "input_tokens"]
+ANSWER_FIELDS = ["flag", "category", "category_confidence", "severity", "severity_score", "severity_confidence", "input_tokens"]
 
 
 def flatten(record):
@@ -199,8 +199,7 @@ def flatten(record):
         if resp:
             a = resp["answers"]
             row.update(
-                flag=a["flag"]["noul"],
-                flag_confidence=abs(2 * a["flag"]["noul"] - 1),  # noul has no confidence field; docs suggest |2p - 1|
+                flag=a["flag"]["noul"],  # noul has no confidence field; the probability itself shows how sure JEV is
                 category=a["category"]["choice"],
                 category_confidence=a["category"].get("confidence"),
                 severity=severity_label(a["severity"]),
@@ -243,7 +242,6 @@ if __name__ == "__main__":
     }
     ok, failed = list(flatten(fake))
     assert ok["flag"] == 0.91 and ok["category"] == "spam" and ok["severity"] == "Mild" and ok["input_tokens"] == 300
-    assert abs(ok["flag_confidence"] - 0.82) < 1e-9
     assert failed["error"] and failed["flag"] is None
     assert severity_label({"probabilities": {"Severe": 0.9, "None": 0.1}}) == "Severe"
     th_levels = QUESTIONS_TH["severity"]["criteria"]

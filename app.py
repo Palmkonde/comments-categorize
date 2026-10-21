@@ -20,14 +20,13 @@ with st.sidebar:
     else:
         st.warning("No TYPESAFE_API_KEY in .env. Fetching and live test are off.")
     st.markdown(f"**Price:** ${jev.PRICE_PER_M} per 1M input tokens")
-    st.caption("Unofficial price from secondary sources (Oct 2026). TypeSafe has no pricing page. Output tokens are free.")
-    threshold = st.slider("Flag threshold (noul)", 0.0, 1.0, 0.5, 0.05)
-    cutoff = st.slider("Confidence cut-off", 0.0, 1.0, 0.5, 0.05)
-    st.caption("Flag confidence below the cut-off goes to human review. 0.5 is the floor TypeSafe's docs use.")
+    st.caption("Price from TypeSafe's launch post (Oct 2026); it may change. Output tokens are free.")
+    review = st.slider("Human review band (flag)", 0.0, 1.0, (0.25, 0.75), 0.05)
+    st.caption("Flag at or below the low end: Auto-keep. At or above the high end: Auto-flag. In between: a person decides.")
     videos = sorted(df["video"].unique()) if not df.empty else []
     picked = st.multiselect("Videos", videos, default=videos)
 
-s = Settings(price=jev.PRICE_PER_M, threshold=threshold, cutoff=cutoff)
+s = Settings(price=jev.PRICE_PER_M, review=review)
 
 how_it_works.render(records)                                     # 1
 fetch.render(key)                                                # 2

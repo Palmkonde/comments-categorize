@@ -12,16 +12,16 @@ ACTIONS = ["Auto-keep", "Auto-flag", "Human review"]
 @dataclass
 class Settings:
     price: float
-    threshold: float
-    cutoff: float
+    review: tuple  # (low, high): flag strictly between them goes to a person
 
 
 def route(d, s):
-    """Add flagged/action columns. The flag drives the action; an unsure flag goes to a person."""
-    action = pd.Series("Auto-keep", index=d.index)
-    action.loc[d["flag"] >= s.threshold] = "Auto-flag"
-    action.loc[d["flag_confidence"] < s.cutoff] = "Human review"
-    return d.assign(flagged=d["flag"] >= s.threshold, action=action)
+    """Add the action column. The flag drives the action; a flag inside the review band goes to a person."""
+    low, high = s.review
+    action = pd.Series("Human review", index=d.index)
+    action.loc[d["flag"] <= low] = "Auto-keep"
+    action.loc[d["flag"] >= high] = "Auto-flag"
+    return d.assign(action=action)
 
 
 def mermaid(src, height):

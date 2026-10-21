@@ -21,11 +21,11 @@ def render(key, s):
     t = resp.get("usage", {}).get("input_tokens", 0)
     p = a["flag"]["noul"]
     c = st.columns(5)
-    c[0].metric("noul: flag", f"{p:.2f}", f"conf {abs(2 * p - 1):.2f}", delta_color="off")
+    c[0].metric("noul: flag", f"{p:.2f}")
     c[1].metric("choice: category", a["category"]["choice"], f"conf {a['category'].get('confidence', 0):.2f}", delta_color="off")
     c[2].metric("score: severity", jev.severity_label(a["severity"]), f"conf {a['severity'].get('confidence', 0):.2f}", delta_color="off")
     c[3].metric("Input tokens", t)
     c[4].metric("Cost", f"${jev.cost(t, s.price):.8f}")
-    one = route(pd.DataFrame([{"flag": p, "flag_confidence": abs(2 * p - 1)}]), s)
+    one = route(pd.DataFrame([{"flag": p}]), s)
     st.markdown(f"**Action:** {one['action'].iloc[0]}")
     st.json(resp, expanded=False)

@@ -54,8 +54,6 @@ def summary(d, s):
     return {
         "Comments answered": len(d),
         "Avg flag probability": round(d["flag"].mean(), 3),
-        "Flagged (≥ threshold)": f"{d['flagged'].mean():.0%}",
-        "Avg flag confidence": round(d["flag_confidence"].mean(), 3),
         "Avg category confidence": round(d["category_confidence"].mean(), 3),
         "Avg severity confidence": round(d["severity_confidence"].mean(), 3),
         "Sent to human review": f"{(d['action'] == 'Human review').mean():.0%}",
@@ -80,7 +78,7 @@ def compare(rec, th, s):
     m = st.columns(3)
     m[0].metric("Same category", f"{(both['category_en'] == both['category_th']).mean():.0%}")
     m[1].metric("Same severity", f"{(both['severity_en'] == both['severity_th']).mean():.0%}")
-    m[2].metric("Same flag decision", f"{(both['flagged_en'] == both['flagged_th']).mean():.0%}")
+    m[2].metric("Same action", f"{(both['action_en'] == both['action_th']).mean():.0%}")
 
     cols = ["text"] + [f"{f}_{lang}" for f in DETAIL_FIELDS for lang in ("en", "th")]
     st.dataframe(both[cols], hide_index=True)

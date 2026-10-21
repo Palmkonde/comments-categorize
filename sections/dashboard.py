@@ -6,9 +6,26 @@ import jev
 from sections.common import ACTIONS, route
 
 TABLE_COLUMNS = [
-    "video", "author", "text", "action", "flagged", "flag", "flag_confidence", "category", "category_confidence",
+    "video", "author", "text", "action", "flag", "category", "category_confidence",
     "severity", "severity_score", "severity_confidence", "input_tokens",
 ]
+COLUMN_HELP = {
+    "flag": "JEV's answer (noul): the chance, from 0 to 1, that a moderator should look at this comment. Example: 0.81.",
+    "action": "What happens to the comment: Auto-flag, Auto-keep, or Human review. See the list below the table.",
+    "category": "choice answer: the most likely category.",
+    "category_confidence": "How clearly the top category beats the others (0-1), from JEV.",
+    "severity": "score answer: the most likely level (None, Mild, Moderate, Severe).",
+    "severity_score": "Weighted average level from 0 (None) to 3 (Severe), so it can fall between levels and differ from severity.",
+    "severity_confidence": "How sure JEV is about the level (0-1). Spread to a nearby level lowers it less than spread to a far level.",
+    "input_tokens": "Tokens JEV read for this comment (questions + title + comment). Cost = input_tokens × price / 1,000,000.",
+}
+ACTION_HELP = """**action:**
+
+- **Auto-flag:** flag is at or above the high end of the review band (default 0.75). JEV is sure the comment breaks the rules: spam, scams, harassment, hate, or harmful misinformation. Sure enough to skip the moderator and hide it automatically.
+- **Auto-keep:** flag is at or below the low end of the review band (default 0.25). JEV is sure the comment is fine. It stays up, no person needed.
+- **Human review:** flag is inside the review band (default between 0.25 and 0.75). JEV is unsure, so a moderator decides.
+
+Only the flag decides the action, because it is the question "should a moderator review this?". noul has no confidence field: the flag probability itself shows how sure JEV is. Move the band with the sidebar slider."""
 
 
 def render(df, s):
@@ -20,7 +37,7 @@ def render(df, s):
     noul_panel(ok, s)
     choice_panel(ok)
     score_panel(ok)
-    confidence(ok)
+    confidence(ok, s)
     table(ok)
 
 
@@ -31,14 +48,14 @@ def summary(ok, df, s):
     per = total / len(ok)
     k = st.columns(6)
     k[0].metric("Comments analyzed", len(ok))
-    k[1].metric("Flagged", f"{ok['flagged'].mean():.0%}")
-    k[2].metric("Auto-handled", f"{(ok['action'] != 'Human review').mean():.0%}", help="Flag confidence ≥ cut-off, so no person needed")
+    k[1].metric("Sent to a person", f"{(ok['action'] == 'Human review').mean():.0%}", help="Flag inside the human review band")
+    k[2].metric("Auto-handled", f"{(ok['action'] != 'Human review').mean():.0%}", help="Flag outside the human review band, so no person needed")
     k[3].metric("Input tokens", f"{tokens:,}")
     k[4].metric("Total cost", f"${total:.6f}")
     k[5].metric("Avg cost / comment", f"${per:.8f}")
     st.caption(
         f"Projected: ${per * 1_000:.4f} per 1,000 comments · ${per * 1_000_000:,.2f} per 1,000,000 comments. "
-        f"Cost = input tokens × ${s.price}/1M. Price is unofficial (see sidebar)."
+        f"Cost = input tokens × ${s.price}/1M. Price from TypeSafe's launch post (see sidebar)."
     )
     failed = df[df["error"].notna()]
     if not failed.empty:
@@ -48,11 +65,10 @@ def summary(ok, df, s):
 def noul_panel(ok, s):
     st.header("4. noul: should a moderator review it?")
     fig = px.histogram(ok, x="flag", color="video", nbins=20, range_x=[0, 1], labels={"flag": "Flag probability"})
-    fig.add_vline(x=s.threshold, line_dash="dash", annotation_text=f"threshold {s.threshold}")
-    fig.add_vrect(x0=0.5 - s.cutoff / 2, x1=0.5 + s.cutoff / 2, fillcolor="gray", opacity=0.15, line_width=0,
+    fig.add_vrect(x0=s.review[0], x1=s.review[1], fillcolor="gray", opacity=0.15, line_width=0,
                   annotation_text="unsure: human review", annotation_position="bottom left")
     st.plotly_chart(fig)
-    st.caption("Near 1 = strong yes, near 0 = strong no, near 0.5 = unsure. Shaded band: flag confidence |2p − 1| below the cut-off.")
+    st.caption("Near 1 = strong yes, near 0 = strong no, near 0.5 = unsure. Shaded band: the human review band from the sidebar.")
 
 
 def choice_panel(ok):
@@ -69,11 +85,11 @@ def score_panel(ok):
     st.caption(f"Average score confidence: {ok['severity_confidence'].mean():.2f}")
 
 
-def confidence(ok):
+def confidence(ok, s):
     st.header("7. Confidence: when can we trust JEV?")
     st.caption(
         "Confidence (0-1) tells how sure JEV is: 1 = all probability on one answer, 0 = spread evenly. "
-        "Rule: confident flag → act automatically; unsure flag → send to a person."
+        "Rule: flag near 0 or 1 → act automatically; flag in the middle → send to a person."
     )
     c1, c2 = st.columns(2)
     fig = px.histogram(ok, x="action", color="video", category_orders={"action": ACTIONS}, title="What happens to each comment")
@@ -82,6 +98,12 @@ def confidence(ok):
                  category_orders={"category": list(jev.CATEGORIES)}, title="choice confidence by category")
     c2.plotly_chart(fig)
     st.caption("Low boxes show categories JEV finds hard to tell apart. Those labels need a person to check them before you trust them.")
+    fig = px.histogram(ok, x="flag", color="action", nbins=20, range_x=[0, 1], category_orders={"action": ACTIONS},
+                       labels={"flag": "Flag probability"}, title="Flag from 0 to 1, by action")
+    for x in s.review:
+        fig.add_vline(x=x, line_dash="dash", annotation_text=f"{x}")
+    st.plotly_chart(fig)
+    st.caption("Between the two lines goes to Human review. Outside them, JEV decides alone: Auto-keep on the left, Auto-flag on the right.")
 
 
 def table(ok):
@@ -89,3 +111,6 @@ def table(ok):
     t = ok[TABLE_COLUMNS]
     st.dataframe(t, hide_index=True)
     st.download_button("Download CSV", t.to_csv(index=False).encode("utf-8-sig"), "jev_results.csv", "text/csv")
+    st.markdown("**What each column means**")
+    st.table([{"Column": k, "Meaning": v} for k, v in COLUMN_HELP.items()])
+    st.markdown(ACTION_HELP)
