@@ -16,6 +16,7 @@ RETRY = RetryPolicy(max_retries=4)  # SDK retries 408, 429, 5xx (incl. 529) with
 PRICE_PER_M = 0.042  # USD per 1M input tokens, output free. From TypeSafe's launch post, Oct 2026.
 DATA_DIR = Path(__file__).parent / "data"
 THAI_DIR = DATA_DIR / "thai_questions"  # subfolder, so load_all() doesn't pick it up
+EXP_DIR = DATA_DIR / "experiments"  # section 11, also a subfolder
 
 CATEGORIES = {
     "clean": "Normal comment: opinion, praise, question, or discussion about the video",
@@ -90,6 +91,44 @@ QUESTIONS_TH = {
 }
 
 
+# Same three questions in English, reworded: the control for the wording experiment (section 11).
+# Same meaning, choice keys, and number of levels; only the words change.
+QUESTIONS_EN2 = {
+    "flag": {
+        "type": "noul",
+        "instructions": "Does this YouTube comment need to be checked by a moderator?",
+        "criteria": {
+            "true": "The comment might violate community guidelines: spam, scams, harassment, hate, or dangerous false information.",
+            "false": "An ordinary comment that can safely stay up.",
+        },
+    },
+    "category": {
+        "type": "choice",
+        "instructions": "Which category best describes this YouTube comment?",
+        "criteria": {
+            "clean": "Ordinary comment: an opinion, compliment, question, or discussion of the video",
+            "spam": "Scams, bots, copy-pasted text, fake giveaways, or suspicious links",
+            "self_promotion": "Promoting the commenter's own channel, product, or social media",
+            "harassment": "Insulting or attacking a person, the video creator, or other commenters",
+            "hate_speech": "Attacking a group because of race, religion, gender, nationality, or similar",
+            "misinformation": "Untrue or misleading claims stated as facts",
+            "off_topic": "Not related to the video",
+        },
+    },
+    "severity": {
+        "type": "score",
+        "instructions": "How much harm does this YouTube comment do?",
+        "criteria": [
+            "None: not harmful",
+            "Mild: impolite or irritating",
+            "Moderate: insulting, misleading, or plainly unwelcome",
+            "Severe: hateful, threatening, or dangerous",
+        ],
+    },
+}
+QUESTION_SETS = {"en": QUESTIONS, "th": QUESTIONS_TH, "en2": QUESTIONS_EN2}
+
+
 def api_key():
     return os.environ.get("TYPESAFE_API_KEY", "").strip()
 
@@ -146,11 +185,15 @@ def save(record, folder):
     return record
 
 
+def comment_rows(comments):
+    return [{"id": c["id"], "author": c.get("author"), "likes": c.get("like_count"), "text": c["text"]} for c in comments]
+
+
 def analyze_video(url, n, key, on_progress=None):
     """Fetch top n comments, ask JEV about each, save to data/<video_id>.json."""
     info, comments = fetch_comments(url, n)
     title = info.get("title", "")
-    rows = [{"id": c["id"], "author": c.get("author"), "likes": c.get("like_count"), "text": c["text"]} for c in comments]
+    rows = comment_rows(comments)
     ask_many(rows, title, key, on_progress=on_progress)
     return save({"video_id": info["id"], "title": title, "url": url, "comments": rows}, DATA_DIR)
 
@@ -161,6 +204,33 @@ def compare_thai(record, key, on_progress=None):
     ask_many(rows, record["title"], key, QUESTIONS_TH, record["model"], on_progress)
     th = {"video_id": record["video_id"], "title": record["title"], "url": record["url"], "model": record["model"], "comments": rows}
     return save(th, THAI_DIR)
+
+
+def run_experiment(urls, n, key, on_progress=None):
+    """Section 11: fetch each video, ask all three question sets about the same comments, save to data/experiments/.
+    Every run is pinned to the model version of the first answer."""
+    videos = [(url, *fetch_comments(url, n)) for url in urls]
+    total = len(QUESTION_SETS) * sum(len(comments) for _, _, comments in videos)
+    done_before = 0
+    model = None
+    saved = []
+    for url, info, comments in videos:
+        title = info.get("title", "")
+        runs = {}
+        for name, questions in QUESTION_SETS.items():
+            rows = comment_rows(comments)
+            ask_many(rows, title, key, questions, model or MODEL,
+                     on_progress and (lambda done, _: on_progress(done_before + done, total)))
+            done_before += len(rows)
+            model = model or next((r["response"]["model"] for r in rows if "response" in r), None)
+            runs[name] = rows
+        saved.append(save({"video_id": info["id"], "title": title, "url": url, "comments": runs["en"],
+                           "th": runs["th"], "en2": runs["en2"]}, EXP_DIR))
+    return saved
+
+
+def load_experiments():
+    return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(EXP_DIR.glob("*.json"))] if EXP_DIR.exists() else []
 
 
 def load_all():
@@ -181,7 +251,7 @@ def severity_label(answer):
     desc = (answer.get("legend") or {}).get(top, top)
     if desc in SEVERITY:
         return desc
-    for questions in (QUESTIONS, QUESTIONS_TH):
+    for questions in QUESTION_SETS.values():
         levels = questions["severity"]["criteria"]
         if desc in levels:
             return SEVERITY[levels.index(desc)]
@@ -249,5 +319,8 @@ if __name__ == "__main__":
     assert QUESTIONS_TH["category"]["criteria"].keys() == CATEGORIES.keys()
     assert len(th_levels) == len(SEVERITY) and QUESTIONS_TH.keys() == QUESTIONS.keys()
     assert build_request("x", questions=QUESTIONS_TH, model="jev-1.13.0")["model"] == "jev-1.13.0"
+    assert QUESTIONS_EN2["category"]["criteria"].keys() == CATEGORIES.keys() and QUESTIONS_EN2.keys() == QUESTIONS.keys()
+    en2_levels = QUESTIONS_EN2["severity"]["criteria"]
+    assert len(en2_levels) == len(SEVERITY) and severity_label({"legend": {"1": en2_levels[1]}, "probabilities": {"1": 0.9}}) == "Mild"
     assert abs(cost(300) - 0.0000126) < 1e-12
     print("ok")

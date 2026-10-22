@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 
 import jev
-from sections import dashboard, fetch, how_it_works, live, thai_compare
+from sections import dashboard, experiment, fetch, how_it_works, live, thai_compare
 from sections.common import Settings
 
 st.set_page_config(page_title="JEV Comment Moderation", layout="wide")
@@ -33,3 +33,4 @@ fetch.render(key)                                                # 2
 dashboard.render(df[df["video"].isin(picked)] if not df.empty else df, s)  # 3-8
 live.render(key, s)                                              # 9
 thai_compare.render(records, key, s)                             # 10
+experiment.render(key)                                           # 11
