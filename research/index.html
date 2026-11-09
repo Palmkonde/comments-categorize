@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JEV research</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1d1d1b; --muted: #5d5b55; --line: #dedbd2;
+    --card: #ffffff; --accent: #2f5d8a; --head: #f1efe9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --fg: #e9e7e1; --muted: #a6a39b; --line: #34332f;
+      --card: #1e1e1b; --accent: #8ab4dd; --head: #262622;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: flex; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  aside { width: 260px; flex-shrink: 0; border-right: 1px solid var(--line); padding: 20px 12px; overflow-y: auto; }
+  aside > a { display: block; font-weight: 700; color: var(--fg); text-decoration: none; padding: 0 8px 12px; }
+  nav a { display: block; padding: 8px; border-radius: 8px; color: var(--fg); text-decoration: none; font-size: .93rem; line-height: 1.35; }
+  nav a small { display: block; color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+  nav a:hover { background: var(--head); }
+  nav a.on { background: var(--head); box-shadow: inset 3px 0 0 var(--accent); }
+  #view { flex: 1; overflow-y: auto; }
+  iframe { display: block; width: 100%; height: 100%; border: 0; }
+  article { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  article a { color: var(--accent); }
+  article h2 { border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-top: 40px; }
+  article code { background: var(--head); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+  article table { border-collapse: collapse; display: block; overflow-x: auto; font-size: .93rem; }
+  article th, article td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  article th { background: var(--head); }
+  @media (max-width: 720px) {
+    body { flex-direction: column; height: auto; }
+    aside { width: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+    #view { overflow: visible; }
+    iframe { height: 100vh; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <a href="#/">JEV research</a>
+  <nav></nav>
+</aside>
+<main id="view"></main>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

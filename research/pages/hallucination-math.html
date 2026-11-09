@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hallucination Math vs JEV</title>
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
+    svg: { fontCache: 'global' }
+  };
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js" defer></script>
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1d1d1b; --muted: #5d5b55; --line: #dedbd2;
+    --card: #ffffff; --accent: #2f5d8a; --good: #2e7d4f; --bad: #a33a2f; --head: #f1efe9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161614; --fg: #e9e7e1; --muted: #a6a39b; --line: #34332f;
+      --card: #1e1e1b; --accent: #8ab4dd; --good: #7cc79a; --bad: #e08a80; --head: #262622;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161614; --fg: #e9e7e1; --muted: #a6a39b; --line: #34332f;
+    --card: #1e1e1b; --accent: #8ab4dd; --good: #7cc79a; --bad: #e08a80; --head: #262622;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.9rem; margin: 0 0 4px; }
+  h2 { font-size: 1.35rem; margin: 44px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 24px 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  a { color: var(--accent); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em;
+         background: var(--head); padding: 1px 5px; border-radius: 4px; }
+  .tldr { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 20px; }
+  .tldr li { margin: 4px 0; }
+  .eq { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+        padding: 6px 14px; margin: 12px 0; overflow-x: auto; }
+  .note { color: var(--muted); font-size: .92rem; }
+  .wrap { overflow-x: auto; margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; background: var(--card); font-size: .93rem; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { background: var(--head); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .hl td { background: color-mix(in srgb, var(--accent) 10%, var(--card)); font-weight: 600; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Hallucination, heuristics and JEV, explained with math</h1>
+<p class="sub">2026-11-06 · Companion to <a href="../#/hallucination-mitigation-vs-jev" target="_top">hallucination-mitigation-vs-jev.md</a> · Facts about JEV come from TypeSafe's docs and one preprint. Anything they do not document is marked <em>not documented</em>.</p>
+
+<div class="tldr">
+<ul>
+  <li>A generative LLM samples from the whole space of strings \(V^*\). Nothing in the math keeps the output inside the set of true answers.</li>
+  <li>Hallucination is classification error made larger by generation: \(\text{err}_{\text{gen}} \gtrsim 2\,\text{err}_{\text{IIV}}\). Benchmarks that score "I don't know" as 0 make guessing the best strategy.</li>
+  <li>A <strong>heuristic</strong> is a cheap \(h \approx f\) that is right most of the time and comes with no guarantee.</li>
+  <li>JEV outputs a distribution \(\pi\) over a finite label set \(Y\) that you define, so \(P(\text{output} \notin Y) = 0\). Wrong labels \(1-\pi(y^*)\) and miscalibration remain.</li>
+  <li>On TypeSafe's own eval, JEV is on the accuracy-per-cost Pareto front: about the same accuracy as terra at 76× lower cost. It is <strong>not</strong> the most accurate (67.8% vs 74.1%). No evidence shows it is SoTA.</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2>1. What a generative LLM computes</h2>
+<div class="eq">
+\[
+p_\theta(x_1,\dots,x_n) = \prod_{t=1}^{n} p_\theta(x_t \mid x_{\lt t}),
+\qquad
+p_\theta(x_t = i \mid x_{\lt t}) = \frac{e^{z_i}}{\sum_{j \in V} e^{z_j}}
+\]
+\[
+\mathcal{L}(\theta) = -\sum_t \log p_\theta(x_t \mid x_{\lt t}) \quad\text{(next-token cross-entropy)}
+\]
+</div>
+<p>Here \(V\) is the vocabulary (about 100k tokens) and \(z\) is the logit vector. Let \(A(x)\) be the set of valid, true answers to prompt \(x\). Then:</p>
+<div class="eq">
+\[
+\text{hallucination rate}(x) = P_{y \sim p_\theta(\cdot \mid x)}\big[\, y \notin A(x) \,\big]
+\]
+</div>
+<p>The loss rewards text that looks like the training data. It does not reward text that is true. The output space is all strings \(V^*\), so nothing in the math forces \(y \in A(x)\).</p>
+
+<!-- ============================================================ -->
+<h2>2. Why hallucination happens</h2>
+<p class="note">Source: <a href="https://arxiv.org/abs/2509.04664">Kalai et al. 2025, "Why language models hallucinate" (OpenAI)</a>; <a href="https://arxiv.org/abs/2311.14648">Kalai &amp; Vempala 2023</a>.</p>
+
+<h3>2.1 Lower bound from classification error</h3>
+<p>Kalai et al. turn generation into a yes/no question, "Is-It-Valid" (IIV): is this string valid? They show:</p>
+<div class="eq">
+\[
+\text{err}_{\text{generative}} \;\gtrsim\; 2 \cdot \text{err}_{\text{IIV}}
+\]
+</div>
+<p>A model that cannot tell valid output from invalid output must also generate invalid output. The exact statement (Theorem 1, §3.2) has two extra terms:</p>
+<div class="eq">
+\[
+\text{err} \;\ge\; 2\cdot\text{err}_{\text{iiv}} \;-\; \frac{\max_c |V_c|}{\min_c |E_c|} \;-\; \delta
+\]
+</div>
+<p class="note">\(V_c\) and \(E_c\) are the valid and error responses for prompt \(c\). \(\delta\) is the model's calibration gap. Kalai et al. say the constant 2 "is relatively tight".</p>
+
+<h3>2.2 Rare facts (singleton rate)</h3>
+<p>Some facts, such as a person's birthday, follow no pattern. For these facts:</p>
+<div class="eq">
+\[
+\text{hallucination rate} \;\gtrsim\; \text{singleton rate} = \frac{\#\{\text{facts seen exactly once in training}\}}{\#\{\text{facts}\}}
+\]
+</div>
+<p>Kalai et al. give this example: "if 20% of birthday facts appear exactly once in the pretraining data, then one expects base models to hallucinate on at least 20% of birthday facts" (§1.1; formal version in Theorem 2, §3.3.1).</p>
+
+<h3>2.3 Benchmarks reward guessing</h3>
+<p>Most benchmarks score right = 1, wrong = 0 and abstain = 0. Let \(p\) be the chance a guess is right:</p>
+<div class="eq">
+\[
+\mathbb{E}[\text{score} \mid \text{guess}] = p,\qquad
+\mathbb{E}[\text{score} \mid \text{abstain}] = 0
+\;\;\Rightarrow\;\; \text{guess whenever } p \gt 0
+\]
+</div>
+<p>Kalai et al. propose a fix: pick a confidence target \(t\), then score right = \(+1\), wrong = \(-\tfrac{t}{1-t}\), abstain = \(0\):</p>
+<div class="eq">
+\[
+\mathbb{E}[\text{guess}] = p - (1-p)\frac{t}{1-t} \gt 0 \iff p \gt t
+\]
+</div>
+<p>With this scoring the best strategy is to answer only when \(p \gt t\), so abstaining becomes rational. Kalai et al. (§4.2): "the expected score of offering an answer beats IDK (score 0) iff its confidence (i.e., probability of being correct) is &gt;t."</p>
+
+<!-- ============================================================ -->
+<h2>3. How LLMs and SLMs reduce hallucination</h2>
+<div class="wrap"><table>
+<thead><tr><th>Method</th><th>Math</th><th>What it does</th><th>Limit</th></tr></thead>
+<tbody>
+<tr>
+  <td>Temperature</td>
+  <td>\(p_i(T) = \dfrac{e^{z_i/T}}{\sum_j e^{z_j/T}}\)</td>
+  <td>\(T \to 0\) gives greedy decoding. Lower \(T\) means fewer rare tokens.</td>
+  <td>Greedy decoding can still be confidently wrong.</td>
+</tr>
+<tr>
+  <td>Top-p / nucleus<br><span class="note"><a href="https://arxiv.org/abs/1904.09751">Holtzman 2019</a></span></td>
+  <td>\(S = \min\{S : \sum_{i \in S} p_i \ge p\}\)</td>
+  <td>Samples only from the high-probability set \(S\) and cuts the tail.</td>
+  <td>A heuristic: a likely token can still be false.</td>
+</tr>
+<tr>
+  <td>RAG<br><span class="note"><a href="https://arxiv.org/abs/2005.11401">Lewis 2020</a></span></td>
+  <td>\(p(y \mid x) = \sum_z p_\eta(z \mid x)\, p_\theta(y \mid x, z)\)</td>
+  <td>Grounds the answer in a retrieved document \(z\), not only in the weights.</td>
+  <td>Bad retrieval leads to a bad answer. Matters most for SLMs.</td>
+</tr>
+<tr>
+  <td>Contrastive decoding / DoLa<br><span class="note"><a href="https://arxiv.org/abs/2210.15097">Li 2022</a>, <a href="https://arxiv.org/abs/2309.03883">Chuang 2023</a></span></td>
+  <td>\(s(i) = \log p_{\text{strong}}(i) - \log p_{\text{weak}}(i)\)</td>
+  <td>DoLa contrasts later and earlier layers to bring out factual knowledge. Contrastive decoding contrasts a large and a small model, and was built for generation quality, not mainly for factuality.</td>
+  <td>Needs access to the model's internals.</td>
+</tr>
+<tr>
+  <td>Semantic entropy<br><span class="note"><a href="https://doi.org/10.1038/s41586-024-07421-0">Farquhar 2024</a></span></td>
+  <td>\(SE(x) = -\sum_c p(c \mid x) \log p(c \mid x)\)<br>\(p(c \mid x) = \sum_{s \in c} p(s \mid x)\)</td>
+  <td>Samples \(N\) answers and groups them by meaning into clusters \(c\). High \(SE\) means the model is confabulating, so it should abstain.</td>
+  <td>Costs \(N\) samples. Detects errors but does not fix them.</td>
+</tr>
+<tr>
+  <td>Self-consistency / SelfCheckGPT<br><span class="note"><a href="https://arxiv.org/abs/2203.11171">Wang 2022</a>, <a href="https://arxiv.org/abs/2303.08896">Manakul 2023</a></span></td>
+  <td>\(\text{agree} = \frac{1}{N}\sum_k \mathbb{1}[y_k = \hat y]\)</td>
+  <td>Low agreement between samples signals a likely hallucination.</td>
+  <td>Consistent answers can still be consistently wrong.</td>
+</tr>
+<tr>
+  <td>Constrained decoding<br><span class="note"><a href="https://arxiv.org/abs/2307.09702">Willard &amp; Louf 2023</a>, <a href="https://arxiv.org/abs/2305.13971">Geng 2023</a></span></td>
+  <td>\(z_i \leftarrow -\infty\) if token \(i\) breaks the grammar</td>
+  <td>The output always matches the schema (JSON, labels).</td>
+  <td>Matches the schema, but is not guaranteed true. Closest relative of JEV.</td>
+</tr>
+<tr>
+  <td>Calibration + abstention<br><span class="note"><a href="https://arxiv.org/abs/1706.04599">Guo 2017</a>, <a href="https://arxiv.org/abs/1705.08500">Geifman 2017</a></span></td>
+  <td>Answer iff \(\text{conf} \ge \tau\)</td>
+  <td>Higher \(\tau\) means fewer errors but fewer answers.</td>
+  <td>Only works if the confidence is calibrated. RLHF can hurt calibration (<a href="https://arxiv.org/abs/2303.08774">GPT-4 report</a>, Fig. 8).</td>
+</tr>
+<tr>
+  <td>Honesty / abstention training<br><span class="note"><a href="https://arxiv.org/abs/2311.09677">R-Tuning, Zhang 2023</a></span></td>
+  <td>Reward "I don't know" when \(p \lt t\) (section 2.3)</td>
+  <td>Teaches the model to refuse when it is unsure.</td>
+  <td>Can make the model refuse too often.</td>
+</tr>
+</tbody>
+</table></div>
+
+<h3>Calibration</h3>
+<p>A model is calibrated if, of all answers it gives confidence \(q\), a fraction \(q\) are right. Expected calibration error (ECE) measures the gap. It sorts predictions into confidence bins \(B_b\):</p>
+<div class="eq">
+\[
+\text{calibrated} \iff P(\text{correct} \mid \text{conf} = q) = q \;\;\forall q,
+\qquad
+\text{ECE} = \sum_{b} \frac{|B_b|}{n}\,\big|\text{acc}(B_b) - \text{conf}(B_b)\big|
+\]
+</div>
+
+<!-- ============================================================ -->
+<h2>4. What "heuristic" means for language models</h2>
+<p>Tversky and Kahneman: heuristics "are quite useful, but sometimes they lead to severe and systematic errors" (<a href="https://doi.org/10.1126/science.185.4157.1124">Science, 1974</a>). In function terms (my formalisation, not a quote), a heuristic is a cheap function \(h\) that approximates the true function \(f\):</p>
+<div class="eq">
+\[
+P_{x \sim D_{\text{train}}}[h(x) = f(x)] \text{ high},\quad
+\text{cost}(h) \ll \text{cost}(f),\quad
+\text{no guarantee when } D_{\text{test}} \ne D_{\text{train}}
+\]
+</div>
+<div class="wrap"><table>
+<thead><tr><th>Sense</th><th>Math</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td>(a) Shortcut learning<br><span class="note"><a href="https://arxiv.org/abs/1902.01007">McCoy 2019</a></span></td>
+    <td>\(P_{\text{train}}(y \mid s) \approx 1\), but \(P_{\text{test}}(y \mid s) \approx\) base rate</td>
+    <td>"High word overlap means entailment" works on training data and fails on new data.</td></tr>
+<tr><td>(b) Decoding heuristics</td>
+    <td>\(\arg\max_i p_i\), top-k, top-p, \(T\)</td>
+    <td>Rules for picking the next token.</td></tr>
+<tr><td>(c) Heuristic detectors</td>
+    <td>Flag if \(\frac{1}{n}\log p_\theta(y) \lt \tau\)</td>
+    <td>Low log-probability or low n-gram overlap with the source signals a hallucination.</td></tr>
+<tr><td>(d) System 1 (Kahneman)</td>
+    <td>Fast \(h\) used in place of slow, multi-step \(f\)</td>
+    <td>TypeSafe's name "System One model" refers to this sense.</td></tr>
+</tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2>5. How JEV works, as math</h2>
+<p>The request defines a finite output space \(Y\). JEV returns a distribution over \(Y\) and never generates text (<a href="https://typesafe.ai/blog/introducing-system-one-models-and-jev">TypeSafe blog</a>):</p>
+<div class="wrap"><table>
+<thead><tr><th>Type</th><th>Output</th><th>Support \(Y\)</th><th>Uncertainty signal</th></tr></thead>
+<tbody>
+<tr><td><code>noul</code></td><td>\(p \in [0,1]\) (Bernoulli)</td><td>\(\{\text{true}, \text{false}\}\)</td><td>\(p\) itself</td></tr>
+<tr><td><code>choice</code></td><td>\(\pi \in \Delta^{K-1}\) (categorical)</td><td>Your \(K\) labels</td><td>Probabilities + confidence (formula not documented)</td></tr>
+<tr><td><code>score</code></td><td>Distribution over ordered levels</td><td>Your levels</td><td>Confidence (formula not documented)</td></tr>
+<tr><td><code>box</code></td><td>Bounding box (Jev 1.14)</td><td>Image region</td><td>Not covered here</td></tr>
+</tbody>
+</table></div>
+
+<h3>5.1 Why JEV "cannot hallucinate"</h3>
+<div class="eq">
+\[
+\operatorname{supp}(\pi) \subseteq Y \;\;\Rightarrow\;\; P(\text{output} \notin Y) = 0
+\]
+</div>
+<p>This is TypeSafe's "0%" figure. It holds by construction and is not measured. TypeSafe itself says the number is "not empirical".</p>
+
+<h3>5.2 The error that remains</h3>
+<div class="eq">
+\[
+\text{risk} = \mathbb{E}_x\big[\,1 - \pi_x(y^*)\,\big] \qquad (y^* = \text{correct label})
+\]
+</div>
+<p>Kalai's bound says generative error comes from classification error. JEV removes the generation step, so only the classification error is left. A fixed label set changes the form of a mistake, not how often mistakes happen.</p>
+<p>Calibration alone is not enough. A model that always outputs the base rate is perfectly calibrated (\(\text{ECE} = 0\)) but useless. You need discrimination metrics (accuracy, AUROC) as well. The preprint gives an example of the gap: on prompt injection, JEV had AUROC 0.982 but recall of only 50% (<a href="https://arxiv.org/abs/2609.37647">Deußer et al. 2026</a>).</p>
+<p class="note"><strong>Not documented:</strong> the architecture, parameter count, training data, the RLCD ("Reinforcement Learning for Calibrated Decisions") objective, and how the <code>choice</code> and <code>score</code> confidences are computed.</p>
+
+<!-- ============================================================ -->
+<h2>6. Comparison: generative LLM vs SLM vs JEV</h2>
+<div class="wrap"><table>
+<thead><tr><th></th><th>Generative LLM</th><th>SLM</th><th>JEV (System One)</th></tr></thead>
+<tbody>
+<tr><td><strong>Output space</strong></td><td>\(V^*\) (any string)</td><td>\(V^*\)</td><td>Finite \(Y\) you define</td></tr>
+<tr><td><strong>Model</strong></td><td>\(\prod_t p_\theta(x_t \mid x_{\lt t})\)</td><td>Same, fewer parameters</td><td>\(\pi(y \mid \text{state}, \text{question}),\ y \in Y\)</td></tr>
+<tr><td><strong>\(P(\text{out-of-schema})\)</strong></td><td class="bad">\(\gt 0\)</td><td class="bad">\(\gt 0\)</td><td class="good">\(= 0\) by design</td></tr>
+<tr><td><strong>Hallucination modes</strong></td><td>Invented facts, unfaithful summaries, invented labels, broken JSON</td><td>Same, plus more factual errors: it stores less knowledge (<a href="https://arxiv.org/abs/2404.14219">Phi-3</a>)</td><td>Wrong label, miscalibration, first-option bias, literal reading (<a href="https://docs.typesafe.ai/model-jaggedness.md">docs</a>)</td></tr>
+<tr><td><strong>Mitigation levers</strong></td><td>RLHF, RAG, tools, CoVe / self-consistency, constrained decoding, abstention</td><td>Same, with more reliance on RAG, tools and distillation</td><td>Clear criteria, small atomic questions, filtered <code>state</code>, threshold routing, reordering options as a check</td></tr>
+<tr><td><strong>Uncertainty signal</strong></td><td>Token logprobs, \(SE(x)\), sample agreement, verbalized confidence (often overconfident)</td><td>Same; logprobs available when self-hosted</td><td>Built in: \(p\), \(\pi\), confidence</td></tr>
+<tr><td><strong>Cost (vendor numbers)</strong></td><td>Input $0.20–$10 / MTok, output about 5× more</td><td>Cheap if self-hosted (needs GPUs)</td><td>$0.042 / MTok input, output free</td></tr>
+<tr><td><strong>Latency</strong></td><td>3–329 s per case (TypeSafe's numbers)</td><td>Depends on hardware</td><td>70–500 ms</td></tr>
+<tr><td><strong>Multi-step reasoning</strong></td><td class="good">Yes</td><td>Limited</td><td class="bad">No (by design)</td></tr>
+</tbody>
+</table></div>
+<p class="note">JEV and LLM price and latency figures come from <a href="https://typesafe.ai/blog/introducing-system-one-models-and-jev">TypeSafe's blog</a>, which is a vendor source. JEV cost per item: \(\text{cost} = T \times 0.042 / 10^6\) USD, where \(T\) is the input tokens per call (state plus all questions). For example, \(T = 1{,}000\) gives \(\$4.2 \times 10^{-5}\).</p>
+
+<!-- ============================================================ -->
+<h2>7. How to set a review band from costs</h2>
+<p class="note">This section is my own derivation. It applies the expected-cost decision principle (<a href="https://mlanthology.org/ijcai/2001/elkan2001ijcai-foundations">Elkan 2001</a>) to three actions. The cost values are illustrative.</p>
+<p>Let \(p\) be a calibrated probability that an item is positive, for example a JEV <code>noul</code>. There are three actions:</p>
+<ul>
+  <li><strong>act:</strong> treat the item as positive automatically</li>
+  <li><strong>pass:</strong> treat it as negative automatically</li>
+  <li><strong>defer:</strong> send it to a person or a slower system</li>
+</ul>
+<p>Define three costs:</p>
+<ul>
+  <li>\(c_{FP}\): acting on an item that was actually negative</li>
+  <li>\(c_{FN}\): passing an item that was actually positive</li>
+  <li>\(c_H\): one deferral</li>
+</ul>
+<p>The expected cost of each action:</p>
+<div class="eq">
+\[
+\mathbb{E}[\text{act}] = (1-p)\,c_{FP},\qquad
+\mathbb{E}[\text{pass}] = p\,c_{FN},\qquad
+\mathbb{E}[\text{defer}] = c_H
+\]
+\[
+\text{act if } p \gt 1 - \frac{c_H}{c_{FP}},\qquad
+\text{pass if } p \lt \frac{c_H}{c_{FN}},\qquad
+\text{otherwise defer}
+\]
+</div>
+<div class="wrap"><table>
+<thead><tr><th>Cost assumption</th><th class="num">Pass below</th><th class="num">Act above</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr class="hl"><td>\(c_{FP} = c_{FN} = 3.33\,c_H\)</td><td class="num">0.30</td><td class="num">0.70</td><td>TypeSafe's suggested start (<a href="https://docs.typesafe.ai/confidence.md">docs</a>) implies an error costs about 3.3 deferrals</td></tr>
+<tr><td>\(c_{FP} = c_{FN} = 4\,c_H\)</td><td class="num">0.25</td><td class="num">0.75</td><td>Symmetric errors, each worth 4 deferrals</td></tr>
+<tr><td>\(c_{FP} = 10\,c_H,\ c_{FN} = 4\,c_H\)</td><td class="num">0.25</td><td class="num">0.90</td><td>A false action is the expensive mistake (for example, blocking a legitimate user)</td></tr>
+<tr><td>\(c_{FP} = 4\,c_H,\ c_{FN} = 20\,c_H\)</td><td class="num">0.05</td><td class="num">0.75</td><td>A miss is the expensive mistake (for example, a security alert)</td></tr>
+<tr><td>\(c_H \ge c_{FP}c_{FN}/(c_{FP}+c_{FN})\)</td><td class="num" colspan="2">no band</td><td>Deferring never pays. Use one threshold, \(p^* = c_{FP}/(c_{FP}+c_{FN})\).</td></tr>
+</tbody>
+</table></div>
+<p>This reasoning is only valid if \(p\) is calibrated. To check that, hand-label a sample of your items and measure ECE.</p>
+
+<!-- ============================================================ -->
+<h2>8. Is JEV state of the art?</h2>
+
+<h3>8.1 TypeSafe's own workflow eval</h3>
+<p class="note">Labels are the average of GPT-6 Astra and Claude Fable 5.1, not human labels. TypeSafe wrote the workflows itself (<a href="https://evals.typesafe.ai/">evals.typesafe.ai</a>).</p>
+<div class="wrap"><table>
+<thead><tr><th>Model</th><th class="num">Accuracy</th><th class="num">Cost / case</th><th class="num">Time / case</th><th>Pareto-optimal?</th></tr></thead>
+<tbody>
+<tr><td>sol</td><td class="num">74.1%</td><td class="num">$0.0836</td><td class="num">23.3 s</td><td>Yes (top accuracy)</td></tr>
+<tr><td>opus 5</td><td class="num">73.1%</td><td class="num">$0.1761</td><td class="num">37.8 s</td><td>No (sol dominates)</td></tr>
+<tr><td>terra</td><td class="num">67.9%</td><td class="num">$0.0304</td><td class="num">10.1 s</td><td>Yes (barely)</td></tr>
+<tr class="hl"><td>Jev</td><td class="num">67.8%</td><td class="num">$0.0004</td><td class="num">0.4 s</td><td>Yes (lowest cost)</td></tr>
+<tr><td>sonnet 5</td><td class="num">67.8%</td><td class="num">$0.1174</td><td class="num">78.1 s</td><td>No (Jev dominates)</td></tr>
+<tr><td>luna</td><td class="num">66.8%</td><td class="num">$0.0033</td><td class="num">12.9 s</td><td>No (Jev dominates)</td></tr>
+<tr><td>haiku 4.5</td><td class="num">53.6%</td><td class="num">$0.0195</td><td class="num">12.5 s</td><td>No</td></tr>
+</tbody>
+</table></div>
+<p>Model \(A\) dominates model \(B\) if \(\text{acc}_A \ge \text{acc}_B\) and \(\text{cost}_A \le \text{cost}_B\), with at least one strictly better. JEV costs \(0.0304 / 0.0004 = 76\times\) less than terra for 0.1 points less accuracy. It is 6.3 points behind sol.</p>
+
+<h3>8.2 The only independent test (preprint, not peer-reviewed)</h3>
+<p class="note"><a href="https://arxiv.org/abs/2609.37647">Deußer et al. 2026</a>, <code>jev-1.13.0</code>, zero-shot, 37 datasets. Bold = best. For ECE, lower is better.</p>
+<div class="wrap"><table>
+<thead><tr><th>Dataset (metric)</th><th class="num">Jev</th><th class="num">Qwen3.8-27B</th><th class="num">Gemma-4-E4B</th></tr></thead>
+<tbody>
+<tr><td>MMLU (acc)</td><td class="num"><strong>0.918</strong></td><td class="num">0.817</td><td class="num">0.674</td></tr>
+<tr><td>Belebele, 122 languages (acc)</td><td class="num"><strong>0.867</strong></td><td class="num">0.778</td><td class="num">0.684</td></tr>
+<tr><td>ToxiGen (acc)</td><td class="num"><strong>0.878</strong></td><td class="num">0.832</td><td class="num">0.806</td></tr>
+<tr><td>OpenAI Moderation (mean AUPRC)</td><td class="num"><strong>0.717</strong></td><td class="num">0.708</td><td class="num">0.576</td></tr>
+<tr><td>ToxicChat (F1)</td><td class="num"><strong>0.786</strong></td><td class="num">0.779</td><td class="num">0.703</td></tr>
+<tr><td>Prompt injections (acc)</td><td class="num">0.741</td><td class="num"><strong>0.767</strong></td><td class="num">0.664</td></tr>
+<tr><td>UNFAIR-ToS (micro-F1)</td><td class="num">0.499</td><td class="num"><strong>0.582</strong></td><td class="num">0.302</td></tr>
+<tr><td>Choice ECE, pooled over 22 datasets</td><td class="num"><strong>0.028</strong></td><td class="num">0.063</td><td class="num">0.208</td></tr>
+<tr><td>ECE averaged over 33 datasets</td><td class="num"><strong>0.074</strong></td><td class="num">0.075</td><td class="num">0.184</td></tr>
+<tr><td>Single <code>noul</code> ECE</td><td class="num"><strong>0.052</strong></td><td class="num">0.113</td><td class="num">0.123</td></tr>
+<tr><td>Multi-label <code>noul</code> ECE</td><td class="num">0.168</td><td class="num"><strong>0.119</strong></td><td class="num">0.161</td></tr>
+</tbody>
+</table></div>
+<p class="note">Not tested: guard models (Llama Guard, ShieldGemma), fine-tuned classifiers, frontier LLMs. JEV's size is not documented. <code>jev-latest</code> now points to 1.14, so results for 1.13 may not carry over.</p>
+
+<h3>8.3 Can small evals show a winner?</h3>
+<div class="eq">
+\[
+SE(\widehat{\text{acc}}) = \sqrt{\frac{p(1-p)}{n}},\qquad
+n = 200,\ p = 0.7 \;\Rightarrow\; SE \approx 0.032,\quad 95\%\ \text{CI} \approx \pm 6.4 \text{ points}
+\]
+</div>
+<p>An eval of 200 items therefore cannot separate two models less than about 6 points apart. TypeSafe does not publish \(n\) for its eval in the material found, so its 6.3-point gap cannot be tested for significance.</p>
+
+<h3>8.4 Verdict</h3>
+<div class="wrap"><table>
+<thead><tr><th>Question</th><th>Answer</th><th>Evidence</th></tr></thead>
+<tbody>
+<tr><td>Out-of-schema hallucination?</td><td class="good">None</td><td>\(\operatorname{supp}(\pi) \subseteq Y\) by design</td></tr>
+<tr><td>Wrong answers?</td><td class="bad">Yes</td><td>\(1 - \pi(y^*) \gt 0\). 67.8% on TypeSafe's eval.</td></tr>
+<tr><td>Calibrated?</td><td>Mostly</td><td>Choice ECE 0.028. Worse on multi-label <code>noul</code> (0.168).</td></tr>
+<tr><td>Best on cost and speed?</td><td class="good">Yes</td><td>$0.0004 and 0.4 s per case, Pareto-optimal</td></tr>
+<tr><td>Most accurate (SoTA)?</td><td class="bad">Not shown</td><td>sol scores 74.1% vs JEV's 67.8%. No comparison with guard models.</td></tr>
+</tbody>
+</table></div>
+
+<h2>Sources</h2>
+<ul class="note">
+  <li><a href="https://arxiv.org/abs/2509.04664">Kalai et al. 2025, Why language models hallucinate</a> · <a href="https://arxiv.org/abs/2311.14648">Kalai &amp; Vempala 2023</a></li>
+  <li><a href="https://arxiv.org/abs/1904.09751">Holtzman et al. 2019 (nucleus sampling)</a> · <a href="https://arxiv.org/abs/2005.11401">Lewis et al. 2020 (RAG)</a> · <a href="https://doi.org/10.1038/s41586-024-07421-0">Farquhar et al. 2024 (semantic entropy)</a></li>
+  <li><a href="https://arxiv.org/abs/1706.04599">Guo et al. 2017 (calibration, ECE)</a> · <a href="https://arxiv.org/abs/1705.08500">Geifman &amp; El-Yaniv 2017 (selective prediction)</a> · <a href="https://arxiv.org/abs/2303.08774">GPT-4 technical report</a></li>
+  <li><a href="https://arxiv.org/abs/1902.01007">McCoy et al. 2019 (shortcut heuristics)</a> · <a href="https://arxiv.org/abs/2404.14219">Phi-3 technical report</a></li>
+  <li><a href="https://typesafe.ai/blog/introducing-system-one-models-and-jev">TypeSafe launch blog</a> · <a href="https://docs.typesafe.ai">TypeSafe docs</a> · <a href="https://evals.typesafe.ai/">TypeSafe evals</a></li>
+  <li><a href="https://arxiv.org/abs/2609.37647">Deußer et al. 2026, Evaluating and Benchmarking the System One Model Jev (preprint)</a></li>
+  <li>Full write-up with all citations: <a href="../#/hallucination-mitigation-vs-jev" target="_top">hallucination-mitigation-vs-jev.md</a></li>
+</ul>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLM or JEV</title>
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
+    svg: { fontCache: 'global' }
+  };
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js" defer></script>
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1d1d1b; --muted: #5d5b55; --line: #dedbd2;
+    --card: #ffffff; --accent: #2f5d8a; --good: #2e7d4f; --bad: #a33a2f; --warn: #8a6a12; --head: #f1efe9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161614; --fg: #e9e7e1; --muted: #a6a39b; --line: #34332f;
+      --card: #1e1e1b; --accent: #8ab4dd; --good: #7cc79a; --bad: #e08a80; --warn: #d9b75a; --head: #262622;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161614; --fg: #e9e7e1; --muted: #a6a39b; --line: #34332f;
+    --card: #1e1e1b; --accent: #8ab4dd; --good: #7cc79a; --bad: #e08a80; --warn: #d9b75a; --head: #262622;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.9rem; margin: 0 0 4px; }
+  h2 { font-size: 1.35rem; margin: 44px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  a { color: var(--accent); }
+  sup a { text-decoration: none; font-weight: 600; font-size: .8em; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+  code { background: var(--head); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; }
+  .answer { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+            border-radius: 10px; padding: 14px 20px; }
+  .eq { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+        padding: 6px 14px; margin: 12px 0; overflow-x: auto; }
+  .note { color: var(--muted); font-size: .92rem; }
+  .wrap { overflow-x: auto; margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; background: var(--card); font-size: .93rem; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { background: var(--head); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .tag { display: inline-block; font-size: .78rem; font-weight: 600; padding: 1px 7px; border-radius: 999px;
+         border: 1px solid currentColor; white-space: nowrap; }
+  .t-ok { color: var(--good); } .t-part { color: var(--warn); } .t-assume { color: var(--bad); }
+  mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>When to use an SLM with guarding, and when to use JEV</h1>
+<p class="sub">2026-11-06 · Follows <a href="../#/hallucination-math" target="_top">Hallucination Math vs JEV</a> · Applies to any task that maps an input to a fixed set of answers: classification, routing, triage, scoring, filtering. Every number links to the <a href="#refs">reference list</a>, which says how it was checked.</p>
+
+<p class="note">Labels used in this page:
+<span class="tag t-ok">verified</span> quote read in the primary source ·
+<span class="tag t-part">partial</span> abstract only, third-party, or not re-read today ·
+<span class="tag t-assume">assumption</span> no source: replace it with your own number ·
+<em>derived</em> my own math from the cited inputs.</p>
+
+<div class="answer">
+<p><strong>Step zero:</strong> first check whether plain rules (if-else, regex, lookups) are enough on your own labelled data. If they are, you need no model at all (section 0). A fixed set of <em>answers</em> does not mean a fixed <em>rule</em>: you need a model when choosing the answer means reading what the text means.</p>
+<p><strong>Short answer:</strong> if your task is "pick from a fixed set of answers" and rules are not enough, use JEV by default. Switch to a self-hosted SLM plus a guard model in one of three cases:</p>
+<ol>
+  <li>JEV <em>cannot</em> do the job: text output, multi-step reasoning, fine-tuning, or on-prem (section 1).</li>
+  <li>Your monthly volume \(N\) is above the price cut point \(N^*(T) \approx 1.4 \times 10^{10} / T\), where \(T\) is input tokens per item (section 2).</li>
+  <li>On <em>your own labelled data</em>, the SLM makes enough fewer mistakes, or defers enough fewer items, to pay for its GPU (sections 2.3 and 3).</li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>0. Do you need a model at all? (<em>derived</em>)</h2>
+<p>"Fixed answers" describes the <strong>output</strong>: a closed list of labels. It says nothing about how hard it is to get from the input to the right label. That is what decides between rules and a model.</p>
+<div class="wrap"><table>
+<thead><tr><th>Approach</th><th>Who maps input to answer</th><th>Works when</th><th>Breaks on</th></tr></thead>
+<tbody>
+<tr><td>Plain if-else</td>
+    <td>You do, by writing every rule</td>
+    <td>The input is already structured (numbers, enums, form fields), or an exact surface pattern settles the label (contains a URL, exact blocklist match)</td>
+    <td>Paraphrase, sarcasm, misspellings, slang, other languages, and context where one word is fine in one sentence and abusive in another. You cannot list every way to say the same thing.</td></tr>
+<tr><td>Model + if-else</td>
+    <td>The model reads the text and returns a label or probability. Your if-else turns that number into an action.</td>
+    <td>The label depends on <em>meaning</em>, not on exact words</td>
+    <td>Costs money and time per call. It can still be wrong or over-confident, so you need thresholds and a human-review band.</td></tr>
+</tbody>
+</table></div>
+<p>Most real systems use both. TypeSafe's own docs tell you to "combine the results with logic in your code"<sup><a href="#r3">[3]</a></sup> and suggest confidence thresholds of 0.7 and 0.3<sup><a href="#r5">[5]</a></sup>. Those thresholds are an if-else on top of JEV's output. This repo does the same in <code>sections/common.py</code>: <code>flag &lt;= low</code> means Auto-keep, <code>flag &gt;= high</code> means Auto-flag, and anything between goes to Human review.</p>
+<p>A common layout is three layers:</p>
+<ol>
+  <li><strong>Rules first.</strong> Cheap, deterministic checks catch the obvious cases (a known spam link, an empty comment).</li>
+  <li><strong>The model only sees what the rules could not settle.</strong> That lowers your monthly volume \(N\), so every cost in section 2 drops with it.</li>
+  <li><strong>Thresholds on the model's output</strong> decide: act automatically, or send to a person.</li>
+</ol>
+<p><strong>How to decide:</strong> on the same labelled set as section 3, measure your rules' accuracy, and how many items they cover. If rules alone reach your accuracy target, stop and use no model. If they cover only some items with high accuracy, keep them as a pre-filter and send the rest to a model.</p>
+<p class="note">No external source for this section. It is ordinary engineering practice plus the two TypeSafe quotes above. Section 5 adds it as the first line of the decision rule.</p>
+
+<!-- ============================================================ -->
+<h2>1. Situations where JEV can't do the job</h2>
+<div class="wrap"><table>
+<thead><tr><th>Need</th><th>JEV (what TypeSafe says)</th><th>SLM + guard</th></tr></thead>
+<tbody>
+<tr><td>Write text, summarise, reply</td>
+    <td class="bad">No. "Jev is not trained to generate text. While you can force it to by chaining choices, this will not work well and will be very slow."<sup><a href="#r4">[4]</a></sup></td>
+    <td class="good">Yes</td></tr>
+<tr><td>Multi-step reasoning</td>
+    <td class="bad">Limited. "If the question you want to ask would require extended reasoning ... decompose it. Ask each factor as a separate question, then combine the results with logic in your code."<sup><a href="#r3">[3]</a></sup> "A question about a property of a property or something that requires multiple hops of reasoning costs accuracy."<sup><a href="#r4">[4]</a></sup></td>
+    <td>Yes, within the model's limits</td></tr>
+<tr><td>Train on your own labels</td>
+    <td class="bad">No. "Jev is not fine-tuned or LoRA-adapted with customer data" and "the same weights serve every account."<sup><a href="#r2">[2]</a></sup></td>
+    <td class="good">Yes</td></tr>
+<tr><td>Data cannot leave your servers</td>
+    <td>No on-prem or self-hosted option in the docs pages read. The docs offer "zero data retention (ZDR) for enterprise customers" and say "Jev is not trained on customer requests or responses."<sup><a href="#r2">[2]</a><a href="#r6">[6]</a></sup> The /enterprise page was not checked.</td>
+    <td class="good">Yes, self-hosted</td></tr>
+<tr><td>Labels or a probability for a fixed set of options</td>
+    <td class="good">Yes. "While Jev gives up string generation, it's optimized for structured outputs."<sup><a href="#r1">[1]</a></sup></td>
+    <td>Possible, but you build the output format and calibration yourself</td></tr>
+</tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2>2. Cost per item</h2>
+<p>For each item, the expected cost is (<em>derived</em>; it follows the expected-cost decision principle<sup><a href="#r14">[14]</a></sup>):</p>
+<div class="eq">
+\[
+C = c_{\text{call}} + P(\text{automatic answer wrong})\cdot c_{\text{err}} + P(\text{deferred})\cdot c_H
+\]
+</div>
+<ul>
+  <li>\(c_{\text{call}}\) is the API or GPU cost of one call.</li>
+  <li>\(c_{\text{err}}\) is the cost of one wrong automatic answer.</li>
+  <li>\(c_H\) is the cost of one item sent to a person or a slower system.</li>
+</ul>
+
+<h3>2.1 Inputs</h3>
+<div class="wrap"><table>
+<thead><tr><th>Input</th><th class="num">Value</th><th>Source</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>JEV input price</td><td class="num">$0.042 / 1M tokens, output free</td><td>"Input tokens: $0.042 / MTok ... Output tokens: FREE"<sup><a href="#r1">[1]</a><a href="#r2">[2]</a></sup></td><td><span class="tag t-ok">verified</span></td></tr>
+<tr><td>Input tokens per item \(T\) (the input plus all questions in one call)</td><td class="num">your number</td><td>Depends on your task. Measure it from the API's <code>usage</code> field.</td><td><span class="tag t-assume">assumption</span></td></tr>
+<tr><td>GPU: AWS <code>g6.xlarge</code>, 1× NVIDIA L4, on-demand, us-east-1</td><td class="num">$0.8048 / h ≈ $587.50 / month</td><td>AWS's own page lists the L4 but no price<sup><a href="#r12">[12]</a></sup>. The price comes from a third-party price tracker<sup><a href="#r13">[13]</a></sup>.</td><td><span class="tag t-part">partial</span></td></tr>
+<tr><td>Can one L4 run an SLM plus a guard model at your volume?</td><td class="num">unknown</td><td>Not measured. Benchmark it before deciding.</td><td><span class="tag t-assume">assumption</span></td></tr>
+<tr><td>Engineering and operations time for self-hosting</td><td class="num">not counted</td><td>Not counted below, so the SLM side is an <em>underestimate</em></td><td><span class="tag t-assume">assumption</span></td></tr>
+<tr><td>Cost of one deferral \(c_H\)</td><td class="num">your number</td><td>No source. Section 2.3 solves for the break-even value instead.</td><td><span class="tag t-assume">assumption</span></td></tr>
+</tbody>
+</table></div>
+
+<h3>2.2 Price-only break-even (<em>derived</em>)</h3>
+<div class="eq">
+\[
+N^*(T) = \frac{F_{\text{GPU}}}{T \cdot 0.042/10^6}
+= \frac{\$587.50}{T \cdot 4.2\times10^{-8}}
+\approx \frac{1.4 \times 10^{10}}{T}\ \text{items / month}
+\]
+</div>
+<div class="wrap"><table>
+<thead><tr><th class="num">Tokens per item \(T\)</th><th>Typical input (illustrative)</th><th class="num">JEV cost / item</th><th class="num">Break-even \(N^*\) / month</th></tr></thead>
+<tbody>
+<tr><td class="num">100</td><td>A short text, one question</td><td class="num">$0.0000042</td><td class="num">~140M</td></tr>
+<tr><td class="num">500</td><td>A message plus a few questions</td><td class="num">$0.000021</td><td class="num">~28M</td></tr>
+<tr><td class="num">1,000</td><td>A ticket or email with context</td><td class="num">$0.000042</td><td class="num">~14M</td></tr>
+<tr><td class="num">5,000</td><td>A long document or an agent trace</td><td class="num">$0.00021</td><td class="num">~2.8M</td></tr>
+<tr><td class="num">20,000</td><td>Very long input</td><td class="num">$0.00084</td><td class="num">~0.7M</td></tr>
+</tbody>
+</table></div>
+<p class="note">Below \(N^*\), JEV is cheaper on price alone. Above it, one L4 is cheaper <em>only if</em> it can keep up. At 14M items a month, that is about 5.4 items per second on average, with higher peaks. Shorter questions lower \(T\) and raise \(N^*\). Asking several questions in one call also lowers cost: TypeSafe's cookbook found that one call with N questions gives the same answers as N calls, and was cheaper and faster.<sup><a href="#r7">[7]</a></sup></p>
+
+<h3>2.3 Deferrals and errors usually matter more than the price (<em>derived</em>)</h3>
+<p>Let \(\Delta\text{err}\) and \(\Delta\text{defer}\) be how much lower the SLM's error rate and deferral rate are. Let \(\Delta F\) be its extra monthly cost (GPU minus JEV). The SLM wins when its savings beat that extra cost:</p>
+<div class="eq">
+\[
+\text{choose SLM} \iff N\,(\Delta\text{err}\cdot c_{\text{err}} + \Delta\text{defer}\cdot c_H) \;\gt\; \Delta F
+\qquad\Rightarrow\qquad
+c_H^{*} = \frac{\Delta F}{N\cdot\Delta\text{defer}} \quad(\text{if } \Delta\text{err}=0)
+\]
+</div>
+<p class="note">Example below with \(T = 1{,}000\) tokens per item, 1× L4, and an SLM that defers 2 percentage points fewer items.</p>
+<div class="wrap"><table>
+<thead><tr><th class="num">Items / month \(N\)</th><th class="num">JEV cost</th><th class="num">\(\Delta F\)</th><th class="num">Break-even \(c_H^{*}\)</th><th>Reading</th></tr></thead>
+<tbody>
+<tr><td class="num">100k</td><td class="num">$4.20</td><td class="num">$583.30</td><td class="num">$0.29</td><td>The SLM pays off only if a deferral costs more than about 29 cents</td></tr>
+<tr><td class="num">1M</td><td class="num">$42</td><td class="num">$545.50</td><td class="num">$0.027</td><td>The SLM pays off if a deferral costs more than about 3 cents</td></tr>
+<tr><td class="num">10M</td><td class="num">$420</td><td class="num">$167.50</td><td class="num">$0.0008</td><td>Almost any deferral cost favours the SLM, if one GPU keeps up</td></tr>
+<tr><td class="num">any</td><td class="num">—</td><td class="num">—</td><td class="num">n/a</td><td>If the SLM is <em>worse</em> (\(\Delta\text{defer} \lt 0\)), JEV wins below \(N^*\)</td></tr>
+</tbody>
+</table></div>
+<p>So the deciding numbers are \(\Delta\text{err}\) and \(\Delta\text{defer}\). Only a labelled test can measure them.</p>
+
+<!-- ============================================================ -->
+<h2>3. The real cut point: measured accuracy and deferral rate</h2>
+<ol>
+  <li>Hand-label \(n\) items from your real data.</li>
+  <li>Run JEV and the SLM + guard on the <strong>same</strong> items.</li>
+  <li>Compare the error rate at a fixed share of automatic answers, and the ECE. Use McNemar's test. Dietterich's comparison of tests for classifiers found McNemar's test has low type I error, and recommends it when each algorithm can be run only once.<sup><a href="#r15">[15]</a></sup></li>
+</ol>
+<p>Sample size per group for comparing two proportions, using the normal approximation (95% two-sided, 80% power, accuracy around 85%):<sup><a href="#r16">[16]</a></sup></p>
+<div class="eq">
+\[
+n \approx \frac{(z_{0.975} + z_{0.8})^2\,\big[p_1(1-p_1) + p_2(1-p_2)\big]}{\Delta^2}
+\approx \frac{(1.96 + 0.84)^2 \cdot 2 \cdot 0.85 \cdot 0.15}{\Delta^2}
+\]
+</div>
+<div class="wrap"><table>
+<thead><tr><th class="num">Gap to detect \(\Delta\)</th><th class="num">\(n\) per group</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td class="num">10 points</td><td class="num">~200</td><td>Enough only to catch large differences</td></tr>
+<tr><td class="num">5 points</td><td class="num">~800</td><td>Typical size for a serious model choice</td></tr>
+<tr><td class="num">3 points</td><td class="num">~2,200</td><td>Needed to separate close models</td></tr>
+</tbody>
+</table></div>
+<p class="note">This is the unpaired formula. A paired design (both systems on the same items) usually needs fewer. How many fewer depends on how often the two systems disagree, which you only learn by running them. The formula is the standard normal approximation. The cited calculator implements it<sup><a href="#r16">[16]</a></sup> but does not print the formula, so status is <span class="tag t-part">partial</span>.</p>
+
+<!-- ============================================================ -->
+<h2>4. Things that move the cut point</h2>
+<div class="wrap"><table>
+<thead><tr><th>Factor</th><th>Favours</th><th>Evidence</th></tr></thead>
+<tbody>
+<tr><td>Your label set vs guard model categories</td><td>Depends</td>
+    <td>
+      <p><strong>Built-in categories:</strong> off-the-shelf guard models cover <em>safety harms</em> only.</p>
+      <ul>
+        <li>Llama Guard 3: 14 categories, such as S1 Violent Crimes, S10 Hate and S13 Elections.<sup><a href="#r9">[9]</a></sup></li>
+        <li>ShieldGemma: sexually explicit content, hate speech, dangerous content, harassment, violence, and obscenity and profanity.<sup><a href="#r11">[11]</a></sup></li>
+      </ul>
+      <p><strong>Other label sets:</strong> for intent, routing, triage, sentiment, spam or topic, the guard model does not apply off the shelf. The SLM must do the classification itself, with your prompts, labels and calibration. Llama Guard supports "zero-shot or few-shot prompting with diverse taxonomies",<sup><a href="#r10">[10]</a></sup> but you have to test custom categories yourself.</p>
+    </td></tr>
+<tr><td>Low-resource languages</td><td>Test first</td>
+    <td>The independent preprint reports JEV's accuracy falling in many low-resource languages.<sup><a href="#r8">[8]</a></sup> It tested <code>jev-1.13.0</code>. Version 1.14 claims "Better multilingual support".<sup><a href="#r17">[17]</a></sup></td></tr>
+<tr><td>Many yes/no labels per item (multi-label <code>noul</code>)</td><td class="bad">SLM (slightly)</td>
+    <td>Preprint ECE for multi-label <code>noul</code>: JEV 0.168 vs Qwen 0.119, lower is better.<sup><a href="#r8">[8]</a></sup> Single <code>noul</code> and <code>choice</code> were better calibrated with JEV.</td></tr>
+<tr><td>Option order</td><td>Test first</td>
+    <td>"Jev leans toward the option that comes first." TypeSafe's fix: "reorder the options to double check that the answer stays consistent."<sup><a href="#r4">[4]</a></sup></td></tr>
+<tr><td>Speed</td><td class="good">JEV</td>
+    <td>"End-to-end response time is 70ms-500ms."<sup><a href="#r1">[1]</a></sup> This is the vendor's own measurement ("run from our laptops on the West Coast"). SLM + guard needs two model passes on your own hardware.</td></tr>
+<tr><td>Thresholds</td><td>Either</td>
+    <td>TypeSafe: "Good starting thresholds are 0.7 and 0.3 ... Give the band between 0.3 and 0.7 its own outcome in code."<sup><a href="#r5">[5]</a></sup> To set them from your own costs, see section 7 of the <a href="../#/hallucination-math" target="_top">math page</a>.</td></tr>
+<tr><td>Version drift</td><td class="bad">SLM</td>
+    <td>"An alias moves when a new release ships, so its answers can change without any change to your code." Their advice: "send that version's ID instead of the alias."<sup><a href="#r2">[2]</a></sup> A self-hosted SLM changes only when you change it.</td></tr>
+<tr><td>Rate limits</td><td>Check</td>
+    <td>"Limits are measured in tokens per second and requests per second." "Higher limits are available on custom and enterprise plans."<sup><a href="#r2">[2]</a></sup> A self-hosted SLM is limited only by your hardware.</td></tr>
+</tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2>5. Decision rule (<em>derived</em> from sections 0–3)</h2>
+<pre>if rules alone hit your accuracy target on labelled data:              no model (if-else / regex)
+# otherwise keep rules as a pre-filter and send the rest below
+elif needs text output / multi-step reasoning / fine-tuning / on-prem: SLM + guard
+elif labelled test: N·(Δerr·c_err + Δdefer·c_H) &gt; ΔF:                   SLM + guard
+elif N &gt; N*(T) ≈ 1.4e10 / T and your GPUs keep up:                      SLM + guard (on price)
+else:                                                                  JEV</pre>
+<p>The same rule as a flowchart:</p>
+<pre class="mermaid">
+flowchart TD
+  A["Task: pick from a fixed set of answers"] --> B{"Rules alone hit your accuracy<br/>target on labelled data?"}
+  B -- Yes --> R["No model: if-else / regex"]
+  B -- No --> C["Keep rules as a pre-filter,<br/>send the rest on"]
+  C --> D{"Needs text output, multi-step reasoning,<br/>fine-tuning, or on-prem?"}
+  D -- Yes --> S["SLM + guard"]
+  D -- No --> E{"Labelled test:<br/>N·(Δerr·c_err + Δdefer·c_H) &gt; ΔF ?"}
+  E -- Yes --> S
+  E -- No --> F{"N &gt; N*(T) ≈ 1.4e10 / T<br/>and your GPUs keep up?"}
+  F -- Yes --> P["SLM + guard (on price)"]
+  F -- No --> J["JEV"]
+</pre>
+<p class="note">If you already own the GPU (<em>derived</em>): the fixed cost \(\Delta F\) is no longer the $587.50/month rental. It shrinks to power, your team's time to run the model, and whatever else the GPU could be doing. \(N^*\) falls with it, so the price branch points to self-hosting much sooner. The labelled test (section 3) still decides on accuracy.</p>
+<div class="answer">
+<p>For fixed-answer tasks below \(N^*(T)\), JEV wins on price. It also wins overall, unless a labelled test shows the SLM makes meaningfully fewer errors or deferrals. Run that labelled test on your own data before you choose.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="refs">References</h2>
+<div class="wrap"><table>
+<thead><tr><th>#</th><th>Source</th><th>Used for</th><th>Status</th></tr></thead>
+<tbody>
+<tr id="r1"><td>1</td><td><a href="https://typesafe.ai/blog/introducing-system-one-models-and-jev">TypeSafe, "Introducing System One models and Jev" (blog)</a></td><td>Price, output free, 70–500 ms, gives up string generation</td><td><span class="tag t-ok">verified</span> 2026-11-06</td></tr>
+<tr id="r2"><td>2</td><td><a href="https://docs.typesafe.ai/models.md">TypeSafe docs: Models</a></td><td>Price, same weights, no fine-tuning, not trained on requests, alias drift, rate limits</td><td><span class="tag t-ok">verified</span> 2026-11-06</td></tr>
+<tr id="r3"><td>3</td><td><a href="https://docs.typesafe.ai/introduction.md">TypeSafe docs: Introduction</a></td><td>Decompose multi-step questions</td><td><span class="tag t-ok">verified</span> 2026-11-06</td></tr>
+<tr id="r4"><td>4</td><td><a href="https://docs.typesafe.ai/model-jaggedness.md">TypeSafe docs: Model jaggedness</a></td><td>No text generation, multi-hop cost, first-option bias</td><td><span class="tag t-ok">verified</span> 2026-11-06</td></tr>
+<tr id="r5"><td>5</td><td><a href="https://docs.typesafe.ai/confidence.md">TypeSafe docs: Confidence</a></td><td>0.7 / 0.3 thresholds</td><td><span class="tag t-ok">verified</span> 2026-11-06</td></tr>
+<tr id="r6"><td>6</td><td><a href="https://docs.typesafe.ai/legal.md">TypeSafe docs: Legal</a></td><td>ZDR for enterprise. No on-prem mention.</td><td><span class="tag t-ok">verified</span> 2026-11-06 (the /enterprise page was not read)</td></tr>
+<tr id="r7"><td>7</td><td><a href="https://docs.typesafe.ai/cookbooks/parallel_questions">TypeSafe cookbook: Parallel questions</a></td><td>One call for N questions</td><td><span class="tag t-part">partial</span> not re-read today</td></tr>
+<tr id="r8"><td>8</td><td><a href="https://arxiv.org/abs/2609.37647">Deußer et al. 2026, "Evaluating and Benchmarking the System One Model Jev", arXiv:2609.37647</a></td><td>ECE by question type, low-resource languages</td><td><span class="tag t-part">partial</span> preprint, not peer-reviewed. Read by the earlier research agent, not re-read today.</td></tr>
+<tr id="r9"><td>9</td><td><a href="https://www.llama.com/docs/model-cards-and-prompt-formats/llama-guard-3/">Meta, Llama Guard 3 model card</a> (redirects to dev.meta.ai)</td><td>Categories S1–S14</td><td><span class="tag t-ok">verified</span> 2026-11-06</td></tr>
+<tr id="r10"><td>10</td><td><a href="https://arxiv.org/abs/2312.06674">Inan et al. 2023, "Llama Guard", arXiv:2312.06674</a></td><td>Custom taxonomies through prompting</td><td><span class="tag t-ok">verified</span> 2026-11-06</td></tr>
+<tr id="r11"><td>11</td><td><a href="https://arxiv.org/abs/2407.21772">Zeng et al. 2024, "ShieldGemma", arXiv:2407.21772</a></td><td>Six harm types, 2B–27B, outputs P(violation)</td><td><span class="tag t-ok">verified</span> 2026-11-06</td></tr>
+<tr id="r12"><td>12</td><td><a href="https://aws.amazon.com/ec2/instance-types/g6/">AWS, Amazon EC2 G6 instances</a></td><td><code>g6.xlarge</code> = 1× NVIDIA L4</td><td><span class="tag t-ok">verified</span> (the page shows no price)</td></tr>
+<tr id="r13"><td>13</td><td><a href="https://calculator.holori.com/aws/ec2/g6.xlarge/us-east-1">Holori, AWS g6.xlarge price (us-east-1)</a>; also <a href="https://www.doit.com/compute/spot/us-east-1/g6.xlarge">DoiT</a></td><td>$0.8048/h on-demand, ~$587.50/month</td><td><span class="tag t-part">partial</span> third-party. Confirm in the <a href="https://calculator.aws/">AWS Pricing Calculator</a>.</td></tr>
+<tr id="r14"><td>14</td><td><a href="https://mlanthology.org/ijcai/2001/elkan2001ijcai-foundations">Elkan 2001, "The Foundations of Cost-Sensitive Learning", IJCAI, pp. 973–978</a></td><td>Expected-cost decision principle</td><td><span class="tag t-part">partial</span> abstract only</td></tr>
+<tr id="r15"><td>15</td><td><a href="https://doi.org/10.1162/089976698300017197">Dietterich 1998, "Approximate Statistical Tests for Comparing Supervised Classification Learning Algorithms", Neural Computation 10(7):1895–1923</a></td><td>McNemar's test for comparing two classifiers</td><td><span class="tag t-part">partial</span> abstract only</td></tr>
+<tr id="r16"><td>16</td><td><a href="https://www.medcalc.org/en/manual/sample-size-comparison-of-proportions.php">MedCalc, Sample size: comparison of proportions</a>, citing Machin et al. 2009, <em>Sample Size Tables for Clinical Studies</em>, 3rd ed., Wiley-Blackwell</td><td>Per-group sample size for two proportions</td><td><span class="tag t-part">partial</span> the calculator is per group but does not print the formula</td></tr>
+<tr id="r17"><td>17</td><td><a href="https://docs.typesafe.ai/changelog.md">TypeSafe docs: Changelog</a></td><td>Jev 1.14 "Better multilingual support"</td><td><span class="tag t-part">partial</span> read by the earlier research agent, not re-read today</td></tr>
+<tr id="r18"><td>18</td><td><a href="../#/hallucination-mitigation-vs-jev" target="_top">hallucination-mitigation-vs-jev.md</a> · <a href="../#/hallucination-math" target="_top">hallucination-math.html</a></td><td>Background and full literature list</td><td>Companion notes</td></tr>
+</tbody>
+</table></div>
+
+</main>
+<script type="module">
+  import mermaid from 'mermaid';
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'neutral' });
+</script>
+</body>
+</html>
